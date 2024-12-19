@@ -1,0 +1,62 @@
+---
+title: "FMVM_Final_Project"
+output: html_document
+date: "2024-04-24"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyquant)
+library(dplyr)
+library(ggplot2)
+library(readr) 
+
+```
+
+
+```{r getdata}
+# Define the commodity symbols
+# These are example symbols and may need to be adjusted
+# commodities <- c("GC=F",   # Gold
+#                  "SI=F",   # Silver
+#                  "CL=F",   # Crude Oil
+#                  "NG=F",   # Natural Gas
+#                  "ZC=F",   # Corn
+#                  "ZS=F",   # Soybeans
+#                  "SB=F",   # Sugar
+#                  "HG=F",   # Copper
+#                  "LE=F",   # Live Cattle
+#                  "PL=F")   # Platinum
+commodities <- c("GC=F",   # Gold
+                 "CL=F",   # Crude Oil
+                 "ZC=F"  # Corn
+                 )
+
+# Fetch the data
+commodity_prices <- tq_get(commodities,
+                           from = '2019-05-02',  # five years from today
+                           to = '2024-05-02',          # until today
+                           get = "stock.prices")
+
+# Glimpse the data
+glimpse(commodity_prices)
+
+```
+```{r data visualization}
+# Plot the data
+commodity_prices %>%
+  ggplot(aes(x = date, y = adjusted, color = symbol)) +
+  geom_line() +
+  labs(title = "Daily Prices of Top 10 Liquid Commodities",
+       x = "Date",
+       y = "Adjusted Price",
+       color = "Commodity") +
+  theme_minimal()
+
+```
+```{r saved data}
+# Write the data to CSV
+write_csv(commodity_prices, "commodity_prices_5_years.csv")
+```
+
+

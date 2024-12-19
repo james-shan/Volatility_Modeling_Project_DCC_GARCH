@@ -1,0 +1,153 @@
+---
+title: "FMVM_Final_Project"
+output: html_document
+date: "2024-04-24"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse) 
+library(readr)
+library(tseries)
+library(forecast)
+library(rugarch)
+library(rmgarch)
+
+
+```
+
+```{r Univariate Model}
+
+# Load data from CSV
+data <- read.csv("commodity_prices_5_years.csv")
+
+# Reshape data from long to wide format using pivot_wider and summarize to ensure no duplicate dates
+data_wide <- data %>%
+  group_by(date, symbol) %>%
+  summarise(adjusted = mean(adjusted), .groups = 'drop') %>%
+  pivot_wider(names_from = symbol, values_from = adjusted)
+
+# Ensure no missing values and complete cases for all commodities
+data_wide <- data_wide %>%
+  filter(complete.cases(.))
+
+# Convert the date column to Date type if not already
+data_wide$date <- as.Date(data_wide$date)
+dates = data_wide$date
+data_wide <-as.data.frame(data_wide)
+
+# Set the date column as the row names, which is helpful for time series analysis
+row.names(data_wide) <- data_wide$date
+data_wide <- data_wide[,-1]  # Remove the date column after setting row names
+# Calculate the logarithm of the prices
+
+ret <- data_wide %>%
+  mutate(log(data_wide)-log(lag(data_wide)))
+ret <- na.omit(ret)
+head(ret,20)
+
+```
+
+
+```{r Test for unit root}
+results <- list()
+for (col in colnames(ret)) {
+  #ts_data <- ts(ret[[col]], frequency = 12)  # Adjust frequency
+  results[[col]] <- adf.test(ret[[col]], alternative = "stationary")
+}
+
+# Print all results
+print(results)
+
+```
+
+```{r get residuals from ARIMA model}
+# Fit ARIMA Model and get residual
+
+residuals <- list()
+
+residuals[['CL=F']] <- residuals(arima(ret[['CL=F']], order = c(11,0,0)))
+Box.test(residuals[['CL=F']], type = "Ljung-Box", lag=22)
+
+residuals[['GC=F']] <- residuals(arima(ret[['GC=F']], order = c(4,0,0)))
+Box.test(residuals[['GC=F']], type = "Ljung-Box", lag=22)
+
+residuals[['ZC=F']] <- residuals(arima(ret[['ZC=F']], order = c(0,0,0)))
+Box.test(residuals[['ZC=F']], type = "Ljung-Box", lag=22)
+
+residuals <- as.data.frame(residuals)
+
+rownames(residuals) <- rownames(ret)
+tail(residuals,20)
+
+```
+
+```{r Garch Model for each}
+
+garch.spec <- ugarchspec(variance.model = list(model = 'sGARCH', garchOrder = c(1, 1)), 
+                   mean.model = list(armaOrder = c(0, 0), include.mean = FALSE),
+                   distribution.model = "std")
+
+garch_fit_1 <- ugarchfit(spec = garch.spec, data = residuals[,1])
+garch_fit_2 <- ugarchfit(spec = garch.spec, data = residuals[,2])
+garch_fit_3 <- ugarchfit(spec = garch.spec, data = residuals[,3])
+show(garch_fit_1)
+show(garch_fit_2)
+show(garch_fit_3)
+
+```
+
+```{r DCC garch model for each pair}
+
+dcc.garch11.spec = dccspec(uspec=multispec(replicate(2,garch.spec)),dccOrder=c(1,1),
+                           distribution= "mvt", mode="DCC") ### specification for dcc model
+dcc_fit_1=dccfit(dcc.garch11.spec, data=residuals[,1:2])
+dcc_fit_2=dccfit(dcc.garch11.spec, data=residuals[,2:3])
+dcc_fit_3=dccfit(dcc.garch11.spec, data=residuals[,-2])
+
+```
+
+
+```{r plot conditional correlation}
+show(dcc_fit_1)
+show(dcc_fit_2)
+show(dcc_fit_3)
+plot(dcc_fit_1, which = 4) 
+plot(dcc_fit_2, which = 4) 
+plot(dcc_fit_3, which = 4) 
+```
+
+```{r separate into periods}
+residuals_before <- residuals[rownames(residuals) < "2022-02-24", ]
+residuals_after <- residuals[rownames(residuals) >= "2022-02-24", ]
+
+dcc_fit_1_before=dccfit(dcc.garch11.spec, data=residuals_before[,1:2])
+dcc_fit_2_before=dccfit(dcc.garch11.spec, data=residuals_before[,2:3])
+dcc_fit_3_before=dccfit(dcc.garch11.spec, data=residuals_before[,-2])
+show(dcc_fit_1_before)
+show(dcc_fit_2_before)
+show(dcc_fit_3_before)
+ucor_1_before <-  apply(rcor(dcc_fit_1_before), c(1,2), mean)
+ucor_2_before <-  apply(rcor(dcc_fit_2_before), c(1,2), mean)
+ucor_3_before <-  apply(rcor(dcc_fit_3_before), c(1,2), mean)
+ucor_1_before
+ucor_2_before
+ucor_3_before
+```
+
+```{r after war}
+
+dcc_fit_1_after=dccfit(dcc.garch11.spec, data=residuals_after[,1:2])
+dcc_fit_2_after=dccfit(dcc.garch11.spec, data=residuals_after[,2:3])
+dcc_fit_3_after=dccfit(dcc.garch11.spec, data=residuals_after[,-2])
+show(dcc_fit_1_after)
+show(dcc_fit_2_after)
+show(dcc_fit_3_after)
+
+ucor_1_after <-  apply(rcor(dcc_fit_1_after), c(1,2), mean)
+ucor_2_after <-  apply(rcor(dcc_fit_2_after), c(1,2), mean)
+ucor_3_after <-  apply(rcor(dcc_fit_3_after), c(1,2), mean)
+ucor_1_after
+ucor_2_after
+ucor_3_after
+```

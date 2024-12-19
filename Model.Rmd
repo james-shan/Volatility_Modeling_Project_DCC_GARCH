@@ -1,0 +1,179 @@
+---
+title: "FMVM_Final_Project"
+output: html_document
+date: "2024-04-24"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse) 
+library(readr)
+library(tseries)
+library(forecast)
+library(rugarch)
+library(rmgarch)
+library(strucchange)
+library(mbreaks)
+
+
+```
+
+```{r Univariate Model}
+
+# Load data from CSV
+data <- read.csv("commodity_prices_5_years.csv")
+
+# Reshape data from long to wide format using pivot_wider and summarize to ensure no duplicate dates
+data_wide <- data %>%
+  group_by(date, symbol) %>%
+  summarise(adjusted = mean(adjusted), .groups = 'drop') %>%
+  pivot_wider(names_from = symbol, values_from = adjusted)
+
+# Ensure no missing values and complete cases for all commodities
+data_wide <- data_wide %>%
+  filter(complete.cases(.))
+
+# Convert the date column to Date type if not already
+data_wide$date <- as.Date(data_wide$date)
+dates = data_wide$date
+data_wide <-as.data.frame(data_wide)
+
+# Set the date column as the row names, which is helpful for time series analysis
+row.names(data_wide) <- data_wide$date
+data_wide <- data_wide[,-1]  # Remove the date column after setting row names
+# Calculate the logarithm of the prices
+
+ret <- data_wide %>%
+  mutate(log(data_wide)-log(lag(data_wide)))
+ret <- na.omit(ret)
+head(ret,20)
+
+```
+```{r Test for unit root}
+results <- list()
+for (col in colnames(ret)) {
+  #ts_data <- ts(ret[[col]], frequency = 12)  # Adjust frequency
+  results[[col]] <- adf.test(ret[[col]], alternative = "stationary")
+}
+
+# Print all results
+print(results)
+
+```
+```{r Test for autocorrelation}
+results <- list()
+for (col in colnames(ret)) {
+  results[[col]] <- Box.test(ret[[col]], type = "Ljung-Box", lag=10)
+  pacf(ret[[col]])
+}
+
+# Print all results
+print(results)
+
+```
+
+```{r get residuals from ARIMA model}
+# Fit ARIMA Model and get residual
+
+residuals <- list()
+
+residuals[['CL=F']] <- residuals(arima(ret[['CL=F']], order = c(11,0,0)))
+Box.test(residuals[['CL=F']], type = "Ljung-Box", lag=22)
+
+residuals[['GC=F']] <- residuals(arima(ret[['GC=F']], order = c(4,0,0)))
+Box.test(residuals[['GC=F']], type = "Ljung-Box", lag=22)
+
+residuals[['ZC=F']] <- residuals(arima(ret[['ZC=F']], order = c(0,0,0)))
+Box.test(residuals[['ZC=F']], type = "Ljung-Box", lag=22)
+
+
+
+residuals <- as.data.frame(residuals)
+
+rownames(residuals) <- rownames(ret)
+tail(residuals,20)
+
+
+```
+
+``` {r Univariate model}
+# Fit univariate GARCH models for each commodity
+marggarch.spec=ugarchspec(variance.model = list(model="gjrGARCH", garchOrder=c(1,1)),
+                          mean.model = list(armaOrder=c(0,0), include.mean=F),
+                          distribution.model="std") ## specification for each individual asset
+dcc.garch11.spec = dccspec(uspec=multispec(replicate(3,marggarch.spec)),dccOrder=c(1,1),
+                           distribution= "mvt", mode="DCC") ### specification for dcc model
+dccmodel=dccfit(dcc.garch11.spec, data=residuals)
+show(dccmodel)
+
+```
+
+```{r Check Result}
+
+plot(dccmodel, which = 4) 
+
+
+```
+
+```{r plot conditional correlation}
+
+# Extract conditional correlations
+dcc_correlations <- rcor(dccmodel, type = "correlation")
+
+# Number of commodities
+n_commodities <- dim(dcc_correlations)[1]
+
+# Plot each pair's conditional correlation
+
+for (i in 1:n_commodities) {
+  for (j in i:n_commodities) {
+    if (i != j) {
+      plot(dcc_correlations[i, j,],type = "l",
+           main = paste("Conditional Correlation between Commodity", i, "and", j),
+           xlab = "Time", ylab = "Correlation")
+    }
+  }
+}
+
+
+```
+
+```{r separated period analysis}
+# Split the data frame
+residuals_before <- residuals[rownames(residuals) < "2022-02-24", ]
+residuals_after <- residuals[rownames(residuals) >= "2022-02-24", ]
+marggarch.spec=ugarchspec(variance.model = list(model="gjrGARCH", garchOrder=c(1,1)),
+                          mean.model = list(armaOrder=c(0,0), include.mean=F),
+                          distribution.model="std") ## specification for each individual asset
+dcc.garch11.spec = dccspec(uspec=multispec(replicate(3,marggarch.spec)),dccOrder=c(1,1),
+                           distribution= "mvt", mode="DCC") ### specification for dcc model
+dccmodel_before=dccfit(dcc.garch11.spec, data=residuals_before)
+dccmodel_after=dccfit(dcc.garch11.spec, data=residuals_after)
+```
+
+```{r check two period model result}
+show(dccmodel_before)
+show(dccmodel_after)
+ucor_before <-  apply(rcor(dccmodel_before), c(1,2), mean)
+ucor_after <-  apply(rcor(dccmodel_after), c(1,2), mean)
+ucor_before
+ucor_after
+```
+
+```{r test for structural break of conditional variance}
+
+# Extract conditional correlations
+ccov <- rcov(dccmodel)
+n_commodities <- dim(ccov)[1]
+
+
+for (i in 1:n_commodities) {
+  for (j in i:n_commodities) {
+    if (i != j) {
+      breaks<-breakpoints(ccov[i,j,]~1)
+      plot(breaks)
+
+    }
+  }
+}
+```
