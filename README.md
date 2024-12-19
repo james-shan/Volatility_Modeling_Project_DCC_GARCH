@@ -20,8 +20,8 @@ Geopolitical events, such as the Russian-Ukrainian war, significantly alter comm
    - Missing values were filtered out to ensure complete data for all commodities.
 
 2. **Stationarity Testing**:
-   - Returns were calculated as the logarithmic differences of prices:  
-     \( r_t = \log(P_t) - \log(P_{t-1}) \).
+   - Returns were calculated as the logarithmic differences of prices:
+     - `return_t = log(price_t) - log(price_t-1)`
    - Augmented Dickey-Fuller (ADF) tests were performed on returns for each commodity to ensure stationarity.
 
 3. **Autocorrelation and Trend Testing**:
@@ -42,11 +42,11 @@ Geopolitical events, such as the Russian-Ukrainian war, significantly alter comm
 
 2. **Dynamic Conditional Correlation (DCC)**:
    - Standardized residuals from the GARCH models were input into the DCC-GARCH model.
-   - Time-varying conditional correlations between commodities were estimated using:
-     \[
-     Q_t = (1 - a - b)\bar{Q} + a(z_{t-1}z_{t-1}^\prime) + bQ_{t-1}
-     \]
-     where \( Q_t \) is the dynamic conditional covariance matrix.
+   - Time-varying conditional correlations between commodities were estimated using the formula:
+     ```
+     Q_t = (1 - a - b) * Q_bar + a * (z_t-1 * z_t-1') + b * Q_t-1
+     ```
+     where `Q_t` is the dynamic conditional covariance matrix.
 
 ### Structural Breaks
 - Bai-Perron tests were applied to detect structural breaks in conditional covariances.
@@ -64,12 +64,6 @@ Geopolitical events, such as the Russian-Ukrainian war, significantly alter comm
 ## Tools and Libraries
 - **R**: Primary programming language for analysis.
 - **Key Libraries**: `dplyr`, `tidyquant`, `rugarch`, `rmgarch`, `forecast`.
-
-## Repository Contents
-- `data/`: Raw and processed datasets.
-- `scripts/`: R scripts for data preprocessing, modeling, and visualization.
-- `results/`: Output plots, model summaries, and Bai-Perron test results.
-- `report/`: Detailed project report.
 
 ## Future Directions
 - Expanding the analysis to include other commodities such as natural gas for a broader understanding of market dynamics.
